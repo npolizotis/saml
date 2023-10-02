@@ -27,9 +27,9 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	dsig "github.com/russellhaering/goxmldsig"
 
-	"github.com/crewjam/saml/logger"
-	"github.com/crewjam/saml/testsaml"
-	"github.com/crewjam/saml/xmlenc"
+	"github.com/npolizotis/saml/logger"
+	"github.com/npolizotis/saml/testsaml"
+	"github.com/npolizotis/saml/xmlenc"
 )
 
 type IdentityProviderTest struct {

@@ -38,7 +38,7 @@ linters:
     - lll # Reports long lines [fast: true, auto-fix: false]
 linters-settings:
   goimports:
-    local-prefixes: github.com/crewjam/saml
+    local-prefixes: github.com/npolizotis/saml
   govet:
     disable:
       - shadow

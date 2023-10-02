@@ -9,12 +9,12 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
@@ -22,8 +22,8 @@ import (
 	xrv "github.com/mattermost/xml-roundtrip-validator"
 	dsig "github.com/russellhaering/goxmldsig"
 
-	"github.com/crewjam/saml/logger"
-	"github.com/crewjam/saml/xmlenc"
+	"github.com/npolizotis/saml/logger"
+	"github.com/npolizotis/saml/xmlenc"
 )
 
 // Session represents a user session. It is returned by the
@@ -100,6 +100,7 @@ type IdentityProvider struct {
 	Logger                  logger.Interface
 	Certificate             *x509.Certificate
 	Intermediates           []*x509.Certificate
+	EntityID                url.URL
 	MetadataURL             url.URL
 	SSOURL                  url.URL
 	LogoutURL               url.URL
@@ -122,7 +123,7 @@ func (idp *IdentityProvider) Metadata() *EntityDescriptor {
 	}
 
 	ed := &EntityDescriptor{
-		EntityID:      idp.MetadataURL.String(),
+		EntityID:      idp.EntityID.String(),
 		ValidUntil:    TimeNow().Add(validDuration),
 		CacheDuration: validDuration,
 		IDPSSODescriptors: []IDPSSODescriptor{
@@ -199,7 +200,17 @@ func (idp *IdentityProvider) Handler() http.Handler {
 // ServeMetadata is an http.HandlerFunc that serves the IDP metadata
 func (idp *IdentityProvider) ServeMetadata(w http.ResponseWriter, _ *http.Request) {
 	buf, _ := xml.MarshalIndent(idp.Metadata(), "", "  ")
-	w.Header().Set("Content-Type", "application/samlmetadata+xml")
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+
+	// create a filename from the URL
+	host := idp.EntityID.Host
+	filename := strings.ReplaceAll(host, ".", "-") + ".xml"
+	if len(filename) < 5 {
+		filename = "metadata.xml"
+	}
+	cdHeaderValue := fmt.Sprintf(`attachment; filename="%s"`, filename)
+
+	w.Header().Set("Content-Disposition", cdHeaderValue)
 	if _, err := w.Write(buf); err != nil {
 		idp.Logger.Printf("ERROR: %s", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -366,19 +377,29 @@ func NewIdpAuthnRequest(idp *IdentityProvider, r *http.Request) (*IdpAuthnReques
 		if err != nil {
 			return nil, fmt.Errorf("cannot decode request: %s", err)
 		}
-		req.RequestBuffer, err = ioutil.ReadAll(newSaferFlateReader(bytes.NewReader(compressedRequest)))
+		flateReader := newSaferFlateReader(bytes.NewReader(compressedRequest))
+		defer flateReader.Close()
+		req.RequestBuffer, err = io.ReadAll(flateReader)
 		if err != nil {
 			return nil, fmt.Errorf("cannot decompress request: %s", err)
 		}
 		req.RelayState = r.URL.Query().Get("RelayState")
 	case "POST":
-		if err := r.ParseForm(); err != nil {
+		var err error
+		if err = r.ParseForm(); err != nil {
 			return nil, err
 		}
-		var err error
-		req.RequestBuffer, err = base64.StdEncoding.DecodeString(r.PostForm.Get("SAMLRequest"))
+		compressedRequest, err := base64.StdEncoding.DecodeString(r.PostForm.Get("SAMLRequest"))
 		if err != nil {
 			return nil, err
+		}
+		flateReader := newSaferFlateReader(bytes.NewReader(compressedRequest))
+		defer flateReader.Close()
+		req.RequestBuffer, err = io.ReadAll(flateReader)
+		if err != nil {
+			// maybe it's not compressed ??
+			// something weird with samltest
+			req.RequestBuffer = compressedRequest
 		}
 		req.RelayState = r.PostForm.Get("RelayState")
 	default:
@@ -1020,7 +1041,7 @@ func (req *IdpAuthnRequest) MakeResponse() error {
 		Version:      "2.0",
 		Issuer: &Issuer{
 			Format: "urn:oasis:names:tc:SAML:2.0:nameid-format:entity",
-			Value:  req.IDP.MetadataURL.String(),
+			Value:  req.IDP.EntityID.String(),
 		},
 		Status: Status{
 			StatusCode: StatusCode{

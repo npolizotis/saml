@@ -12,13 +12,14 @@ import (
 
 	"github.com/zenazn/goji/web"
 
-	"github.com/crewjam/saml"
-	"github.com/crewjam/saml/logger"
+	"github.com/npolizotis/saml"
+	"github.com/npolizotis/saml/logger"
 )
 
 // Options represent the parameters to New() for creating a new IDP server
 type Options struct {
 	URL         url.URL
+	EntityID    url.URL
 	Key         crypto.PrivateKey
 	Signer      crypto.Signer
 	Logger      logger.Interface
@@ -56,10 +57,16 @@ func New(opts Options) (*Server, error) {
 		logr = logger.DefaultLogger
 	}
 
+	//fallback to metadata URL if entityId isn't provided
+	if opts.EntityID.String() == "" {
+		opts.EntityID = metadataURL
+	}
+
 	s := &Server{
 		serviceProviders: map[string]*saml.EntityDescriptor{},
 		IDP: saml.IdentityProvider{
 			Key:         opts.Key,
+			EntityID:    opts.EntityID,
 			Signer:      opts.Signer,
 			Logger:      logr,
 			Certificate: opts.Certificate,
