@@ -377,9 +377,7 @@ func NewIdpAuthnRequest(idp *IdentityProvider, r *http.Request) (*IdpAuthnReques
 		if err != nil {
 			return nil, fmt.Errorf("cannot decode request: %s", err)
 		}
-		flateReader := newSaferFlateReader(bytes.NewReader(compressedRequest))
-		defer flateReader.Close()
-		req.RequestBuffer, err = io.ReadAll(flateReader)
+		req.RequestBuffer, err = io.ReadAll(newSaferFlateReader(bytes.NewReader(compressedRequest)))
 		if err != nil {
 			return nil, fmt.Errorf("cannot decompress request: %s", err)
 		}
